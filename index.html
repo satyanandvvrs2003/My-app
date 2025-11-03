@@ -2,8 +2,8 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1" />
-<title>Looper with Delete & Low Latency</title>
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Seamless Looper with Immediate Play</title>
 <style>
   body {
     background:#e0e5ec;
@@ -29,16 +29,16 @@
   h2 {
     margin-bottom:20px;
     font-size:1.5em;
-    color:#333;
     text-align: center;
+    color:#333;
   }
   button {
-    margin:0 5px;
-    padding:12px 15px;
+    margin:10px 5px;
+    padding:14px 15px;
     border:none;
     border-radius:20px;
     box-shadow:4px 4px 12px #babecc, -4px -4px 12px #fff;
-    font-size: 1em;
+    font-size:1em;
     cursor:pointer;
     background:#e0e5ec;
     transition:all 0.2s;
@@ -65,7 +65,7 @@
     box-shadow:4px 4px 12px #babecc, -4px -4px 12px #fff;
   }
   .track > span {
-    flex-basis: 100%;
+    width: 100%;
     font-weight: 600;
     margin-bottom: 8px;
     color:#444;
@@ -85,270 +85,180 @@
     min-width: 60px;
     text-align: center;
   }
-  @media (max-width: 480px) {
-    .container {
-      max-width: 100%;
-      padding: 15px;
-    }
-    .track {
-      justify-content: center;
-    }
-    button {
-      padding: 12px 10px;
-      font-size: 14px;
-      flex-grow: 1;
-    }
+  @media(max-width: 480px){
+    .container { padding: 15px; }
+    button { padding: 10px; font-size: 14px; }
   }
 </style>
 </head>
 <body>
 <div class="container">
-  <h2>🎧 Multi-Track Looper with Delete & Timer</h2>
-  <div id="tracks"></div>
-  <button id="addTrack">+ Add New Track</button>
-  <button id="exportAudio">💾 Export All Tracks</button>
-  <p><em>Recordings saved locally; reload ke baad bhi milenge.</em></p>
+<h2>🎧 Seamless Multi-Track Looper</h2>
+<div id="tracks"></div>
+<button id="addTrack">+ Add Track</button>
+<button id="exportAudio">💾 Export All Tracks</button>
+<p><em>Immediate recording & looping—seamless experience!</em></p>
 </div>
 <script>
-(async () => {
-  let trackCount = 0;
-  let mediaRecorders = [];
-  let mediaStreams = [];
-  let audioBlobs = [];
-  let loopAudios = [];
-  let audioURLs = [];
-  let isRecording = [];
-  let timers = [];
-  let timerIntervals = [];
+(async() => {
+  let trackCount=0;
+  let mediaRecorders=[], mediaStreams=[], audioBlobs=[], loopAudios=[], audioURLs=[], isRecording=[], timers=[], timerInts=[];
+  const STORAGE_KEY='multiTrackLooperData';
+  const audioContext=new (window.AudioContext||window.webkitAudioContext)();
 
-  const STORAGE_KEY = 'multiTrackLooperData';
-  let audioContext = new (window.AudioContext || window.webkitAudioContext)();
-
-  async function resumeAudioContext() {
-    if (audioContext.state === 'suspended') {
-      await audioContext.resume();
-    }
+  async function resumeAudio() {
+    if(audioContext.state==='suspended') await audioContext.resume();
   }
 
-  function blobToBase64(blob) {
-    return new Promise(resolve => {
-      if (!blob) resolve(null);
-      const reader = new FileReader();
-      reader.onloadend = () => resolve(reader.result);
-      reader.readAsDataURL(blob);
-    });
-  }
+  function formatTime(sec){ const m=Math.floor(sec/60).toString().padStart(2,'0'); const s=(sec%60).toString().padStart(2,'0'); return `${m}:${s}`; }
+  function startTimer(i){ let sec=0; timers[i].textContent= formatTime(sec); timerInts[i]=setInterval(()=>{ sec++; timers[i].textContent= formatTime(sec); },1000); }
+  function resetTimer(i){ clearInterval(timerInts[i]); timers[i].textContent='00:00'; }
 
-  async function base64ToBlob(base64) {
-    if (!base64) return null;
-    const response = await fetch(base64);
-    return await response.blob();
-  }
+  function clearURL(i){ if(audioURLs[i]){ URL.revokeObjectURL(audioURLs[i]); audioURLs[i]=null; } }
 
-  async function saveToLocalStorage() {
-    const base64List = await Promise.all(audioBlobs.map(blobToBase64));
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(base64List));
+  async function saveAll(){ 
+    const base64s= await Promise.all(audioBlobs.map(blob=>blob?blobToBase64(blob):null));
+    localStorage.setItem(STORAGE_KEY,JSON.stringify(base64s));
   }
-
-  async function loadFromLocalStorage() {
-    const storedData = localStorage.getItem(STORAGE_KEY);
-    if (!storedData) return;
-    const base64List = JSON.parse(storedData);
-    for (let i = 0; i < base64List.length; i++) {
-      if (base64List[i]) {
-        audioBlobs[i] = await base64ToBlob(base64List[i]);
-        createTrack(i, true);
+  async function loadAll(){
+    const data=localStorage.getItem(STORAGE_KEY);
+    if(!data) return;
+    const arr=JSON.parse(data);
+    for(let i=0;i<arr.length;i++){
+      if(arr[i]){
+        audioBlobs[i]= await base64ToBlob(arr[i]);
+        createTrack(i,true);
       }
     }
   }
 
-  function formatTime(seconds) {
-    const m = Math.floor(seconds / 60).toString().padStart(2, '0');
-    const s = (seconds % 60).toString().padStart(2, '0');
-    return `${m}:${s}`;
-  }
+  function createTrack(index=null,hydrate=false){
+    if(index==null) { index=trackCount++; } 
+    else if(index>=trackCount){ trackCount=index+1; }
 
-  function startTimer(index) {
-    let seconds = 0;
-    timers[index].textContent = formatTime(seconds);
-    timerIntervals[index] = setInterval(() => {
-      seconds++;
-      timers[index].textContent = formatTime(seconds);
-    }, 1000);
-  }
-
-  function stopTimer(index) {
-    clearInterval(timerIntervals[index]);
-    timers[index].textContent = '00:00';
-  }
-
-  function clearAudioURL(index) {
-    if(audioURLs[index]) {
-      URL.revokeObjectURL(audioURLs[index]);
-      audioURLs[index] = null;
-    }
-  }
-
-  function createTrack(index = null, isRehydrate = false) {
-    if (index === null) index = trackCount++;
-    else if (index >= trackCount) trackCount = index + 1;
-
-    const tracksDiv = document.getElementById('tracks');
-    const trackDiv = document.createElement('div');
-    trackDiv.className = 'track';
-    trackDiv.id = `track-${index}`;
-
-    trackDiv.innerHTML = `
-      <span>Track ${index + 1}</span>
+    const container=document.getElementById('tracks');
+    const track=document.createElement('div');
+    track.className='track'; track.id=`track-${index}`;
+    track.innerHTML=`
+      <span>Track ${index+1}</span>
       <div class="timer" id="timer${index}">00:00</div>
       <div class="controls">
         <button id="record${index}">🎙️ Record</button>
         <button id="play${index}">🔄 Play Loop</button>
         <button id="stop${index}">⏹️ Stop</button>
-        <button id="delRec${index}">🗑️ Delete Recording</button>
+        <button id="delRec${index}">🗑️ Delete Rec</button>
         <button id="delTrack${index}">❌ Delete Track</button>
       </div>
     `;
-    tracksDiv.appendChild(trackDiv);
+    container.appendChild(track);
+    isRecording[index]=false; timers[index]=document.getElementById(`timer${index}`);
 
-    isRecording[index] = false;
-    timers[index] = document.getElementById(`timer${index}`);
-
-    document.getElementById(`record${index}`).onclick = async () => {
-      await resumeAudioContext();
-      if (isRecording[index]) {
+    // Record
+    document.getElementById(`record${index}`).onclick=async()=>{
+      await resumeAudio();
+      if(isRecording[index]){
         mediaRecorders[index].stop();
-        mediaStreams[index].getTracks().forEach(t => t.stop());
-        stopTimer(index);
-        isRecording[index] = false;
-        document.getElementById(`record${index}`).textContent = '🎙️ Record';
+        mediaStreams[index].getTracks().forEach(t=>t.stop());
+        resetTimer(index);
+        isRecording[index]=false; document.getElementById(`record${index}`).textContent='🎙️ Record';
       } else {
-        try {
-          const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-          mediaStreams[index] = stream;
-          const mediaRecorder = new MediaRecorder(stream);
-          mediaRecorders[index] = mediaRecorder;
-          let chunks = [];
-
-          mediaRecorder.ondataavailable = e => chunks.push(e.data);
-          mediaRecorder.onstop = async () => {
-            audioBlobs[index] = new Blob(chunks, { type: 'audio/webm' });
-            chunks = [];
-
-            // Clear old audio URL to reduce latency
-            clearAudioURL(index);
-            audioURLs[index] = URL.createObjectURL(audioBlobs[index]);
-
-            await saveToLocalStorage();
+        try{
+          const stream=await navigator.mediaDevices.getUserMedia({audio:true});
+          mediaStreams[index]=stream;
+          const rec=new MediaRecorder(stream);
+          mediaRecorders[index]=rec; let chunks=[];
+          rec.ondataavailable=e=>chunks.push(e.data);
+          rec.onstop=async()=>{
+            audioBlobs[index]=new Blob(chunks,{type:'audio/webm'});
+            chunks=[];
+            clearURL(index); // remove old URL for latency
+            audioURLs[index]=URL.createObjectURL(audioBlobs[index]);
+            await saveAll();
           };
-
-          mediaRecorder.start();
-          startTimer(index);
-          isRecording[index] = true;
-          document.getElementById(`record${index}`).textContent = '⏹️ Stop Recording';
-        } catch (err) {
-          alert('Mic permission dena zaruri hai!');
-          console.error(err);
-        }
+          rec.start(); isRecording[index]=true; startTimer(index);
+          document.getElementById(`record${index}`).textContent='⏹️ Stop';
+        } catch(e){ alert('Mic permission chahiye!'); console.error(e); }
       }
     };
 
-    document.getElementById(`play${index}`).onclick = () => {
-      if (!audioURLs[index]) {
-        if (!audioBlobs[index]) {
-          alert('Pehle recording karein!');
-          return;
-        }
-        audioURLs[index] = URL.createObjectURL(audioBlobs[index]); // create if missing
+    // Play Loop
+    document.getElementById(`play${index}`).onclick=()=>{
+      if(!audioBlobs[index]){ alert('Pehle record karo!'); return; }
+      if(audioURLs[index]==null){ 
+        clearURL(index);
+        audioURLs[index]=URL.createObjectURL(audioBlobs[index]);
       }
-      if (loopAudios[index] && !loopAudios[index].paused) {
+      if(loopAudios[index] && !loopAudios[index].paused){ // pause
         loopAudios[index].pause();
-        document.getElementById(`play${index}`).textContent = '🔄 Play Loop';
-      } else {
-        const audio = new Audio(audioURLs[index]);
-        audio.loop = true;
-        audio.play();
-        loopAudios[index] = audio;
-        document.getElementById(`play${index}`).textContent = '⏹️ Pause Loop';
+        document.getElementById(`play${index}`).textContent='🔄 Play Loop';
+        return;
       }
+      const a=new Audio(audioURLs[index]);
+      a.loop=true; a.play();
+      loopAudios[index]=a;
+      document.getElementById(`play${index}`).textContent='⏹️ Pause Loop';
     };
 
-    document.getElementById(`stop${index}`).onclick = () => {
-      if (isRecording[index]) {
+    // Stop (Recording/Playing)
+    document.getElementById(`stop${index}`).onclick=()=>{
+      if(isRecording[index]){
         mediaRecorders[index].stop();
-        mediaStreams[index].getTracks().forEach(t => t.stop());
-        stopTimer(index);
-        isRecording[index] = false;
-        document.getElementById(`record${index}`).textContent = '🎙️ Record';
+        mediaStreams[index].getTracks().forEach(t=>t.stop());
+        resetTimer(index);
+        isRecording[index]=false;
+        document.getElementById(`record${index}`).textContent='🎙️ Record';
       }
-      if (loopAudios[index] && !loopAudios[index].paused) {
+      if(loopAudios[index] && !loopAudios[index].paused){
         loopAudios[index].pause();
-        document.getElementById(`play${index}`).textContent = '🔄 Play Loop';
+        document.getElementById(`play${index}`).textContent='🔄 Play Loop';
       }
     };
 
-    // Delete Recording button - only recording data cleared
-    document.getElementById(`delRec${index}`).onclick = () => {
-      if (isRecording[index]) {
-        alert('Pehle recording band karein!');
+    // Delete Recording
+    document.getElementById(`delRec${index}`).onclick=()=>{
+      if(isRecording[index]){
+        alert('Recording chal rahi hai, pehle stop karo!');
         return;
       }
-      if(loopAudios[index] && !loopAudios[index].paused) {
-        loopAudios[index].pause();
-        document.getElementById(`play${index}`).textContent = '🔄 Play Loop';
-      }
-      audioBlobs[index] = null;
-      clearAudioURL(index);
-      saveToLocalStorage();
-      alert(`Track ${index + 1} ka recording delete ho gaya.`);
-    };
+      if(loopAudios[index] && !loopAudios[index].paused) { loopAudios[index].pause(); }
+      audioBlobs[index]=null;
+      clearURL(index);
+      saveAll();
+      alert(`Track ${index+1} ke recording delete.`);
+    }
 
-    // Delete Track button - remove entire track UI + data
-    document.getElementById(`delTrack${index}`).onclick = () => {
-      if (isRecording[index]) {
-        alert('Pehle recording band karein!');
+    // Delete Track
+    document.getElementById(`delTrack${index}`).onclick=()=>{
+      if(isRecording[index]){
+        alert('Recording chal rahi hai! Pehle stop karo.');
         return;
       }
-      if(loopAudios[index] && !loopAudios[index].paused) {
-        loopAudios[index].pause();
-      }
-      audioBlobs[index] = null;
-      clearAudioURL(index);
-      mediaRecorders[index] = null;
-      mediaStreams[index] = null;
-      if (timers[index]) stopTimer(index);
-
-      // Remove from UI
-      const trackDiv = document.getElementById(`track-${index}`);
-      if(trackDiv) trackDiv.remove();
-
-      saveToLocalStorage();
-    };
+      if(loopAudios[index] && !loopAudios[index].paused){ loopAudios[index].pause(); }
+      // remove UI
+      document.getElementById(`track-${index}`).remove();
+      // clear data
+      audioBlobs[index]=null; clearURL(index);
+      if(timerInts[index]){ clearInterval(timerInts[index]); }
+      saveAll();
+    }
   }
 
-  document.getElementById('addTrack').onclick = () => createTrack();
-
-  document.getElementById('exportAudio').onclick = () => {
-    if (!audioBlobs.length || audioBlobs.every(b => !b)) {
-      alert('Abhi koi recording nahi hai!');
-      return;
-    }
-    audioBlobs.forEach((blob, i) => {
-      if(blob) {
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = `Track_${i + 1}.webm`;
-        a.click();
+  document.getElementById('addTrack').onclick=()=>createTrack();
+  document.getElementById('exportAudio').onclick=()=>{
+    if(audioBlobs.every(b=>!b)){ alert('Koi recording nahi!'); return; }
+    audioBlobs.forEach((b,i)=>{
+      if(b){
+        const url=URL.createObjectURL(b);
+        const a=document.createElement('a');
+        a.href=url; a.download=`Track_${i+1}.webm`; a.click();
       }
     });
-  };
-
-  await loadFromLocalStorage();
-  if (!document.getElementById('tracks').children.length) {
-    createTrack();
   }
+
+  await loadAll(); // load previously saved
+  if(document.getElementById('tracks').children.length===0) createTrack();
 })();
 </script>
+</div>
 </body>
 </html>

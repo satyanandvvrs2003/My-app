@@ -2,63 +2,94 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>Seamless Multi-Track Looper</title>
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1" />
+<title>Responsive Multi-Track Looper</title>
 <style>
   body {
-    background:#e0e5ec; font-family:sans-serif; margin:0; display:flex; justify-content:center; align-items:flex-start; padding:20px; min-height:100vh;
+    background:#e0e5ec; font-family:sans-serif; margin:0; padding:20px;
+    display:flex; justify-content:center; align-items:flex-start; min-height:100vh;
   }
   .container {
-    width: 100%; max-width: 430px; padding:20px; background:#e0e5ec; border-radius:25px;
-    box-shadow:8px 8px 20px #babecc, -8px -8px 20px #fff; display:flex; flex-direction:column; align-items:center;
+    width: 100%; max-width: 700px; background:#e0e5ec; border-radius:25px;
+    box-shadow:8px 8px 24px #babecc, -8px -8px 24px #fff; padding:25px;
+    display:flex; flex-direction:column; align-items:center;
   }
   h2 {
-    margin-bottom:20px; font-size:1.5em; color:#333; text-align:center;
+    margin-bottom:24px; font-size:2em; color:#333; text-align: center;
+  }
+  #controlsTop {
+    display:flex; justify-content:center; gap:20px; flex-wrap: wrap; margin-bottom:20px;
   }
   button {
-    margin:8px 5px; padding:12px 14px; border:none; border-radius:20px;
-    box-shadow:4px 4px 12px #babecc, -4px -4px 12px #fff; font-size:1em; cursor:pointer; background:#e0e5ec;
-    transition:all 0.2s; flex-shrink:0;
+    padding:14px 22px; border:none; border-radius:25px;
+    box-shadow:4px 4px 16px #babecc, -4px -4px 16px #fff;
+    font-size:1.1em; cursor:pointer; background:#e0e5ec;
+    transition: box-shadow 0.2s ease;
+    user-select:none;
   }
   button:active {
     box-shadow: inset 4px 4px 12px #babecc, inset -4px -4px 12px #fff;
   }
   #tracks {
-    width:100%; margin-top:20px; display:flex; flex-direction:column; gap:18px;
+    width: 100%;
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+    gap: 20px;
   }
   .track {
-    background:#f1f2f6; border-radius:20px; padding:15px 20px 20px 20px;
-    box-shadow:4px 4px 12px #babecc, -4px -4px 12px #fff; display:flex; flex-direction: column; gap: 10px;
+    background:#f1f2f6; border-radius:20px; padding:20px;
+    box-shadow:4px 4px 16px #babecc, -4px -4px 16px #fff;
+    display:flex; flex-direction: column; gap: 14px;
   }
   .track-header {
-    font-weight:600; color:#444; font-size:1.1em;
+    font-weight:700; font-size:1.2em; color:#444;
+    user-select:none;
+  }
+  .timer {
+    font-family: monospace; font-size:16px; color:#555;
+    min-width: 70px; text-align:center; user-select:none;
   }
   .controls {
     display:flex; flex-wrap: wrap; justify-content:center; gap:10px;
   }
-  .timer {
-    font-family: monospace; font-size:14px; color:#555; margin-left:10px;
-    min-width:60px; text-align:center;
-  }
   .volume-control {
-    display:flex; align-items:center; gap:6px; width:100%; max-width:150px; margin-top:6px;
+    display:flex; align-items:center; gap:8px; max-width:180px;
+  }
+  label {
+    user-select:none; font-size:0.9em;
   }
   input[type="range"] {
-    flex-grow:1;
+    flex-grow: 1; cursor:pointer;
   }
-  @media(max-width:480px){
-    .container { max-width: 100%; padding: 15px; }
-    button { padding: 10px; font-size: 14px; }
+  @media (max-width: 550px) {
+    button {
+      font-size: 1em; padding: 10px 16px;
+    }
+    .track-header {
+      font-size: 1.1em;
+    }
+    .timer {
+      font-size: 14px;
+      min-width: 60px;
+    }
+    .volume-control {
+      max-width: 150px;
+      gap: 6px;
+    }
   }
 </style>
 </head>
 <body>
 <div class="container">
-<h2>🎧 Seamless Multi-Track Looper</h2>
-<div id="tracks"></div>
-<button id="addTrack">+ Add Track</button>
-<button id="exportAudio">💾 Export All Tracks</button>
-<p><em>Recording stops on play and loop starts immediately, multi-track volume control and delete options included.</em></p>
+  <h2>🎧 Responsive Multi-Track Looper</h2>
+  <div id="controlsTop">
+    <button id="addTrack">+ Add Track</button>
+    <button id="exportAudio">💾 Export All Tracks</button>
+  </div>
+  <div id="tracks"></div>
+  <p style="font-style: italic; color:#666; margin-top:16px; text-align:center;">
+    Record stop on play, loops play simultaneously. Volume & delete options included.
+  </p>
 </div>
 <script>
 (async () => {
@@ -145,7 +176,7 @@
     if(idx===null) {
       idx = trackCount++;
     } else if(idx >= trackCount) {
-      trackCount = idx +1;
+      trackCount = idx + 1;
     }
 
     const container = document.getElementById('tracks');
@@ -154,17 +185,19 @@
     trackDiv.id = `track-${idx}`;
     trackDiv.innerHTML = `
       <div class="track-header">Track ${idx+1}</div>
-      <div class="timer" id="timer${idx}">00:00</div>
+      <div style="display:flex; align-items:center; justify-content:space-between;">
+        <div class="timer" id="timer${idx}">00:00</div>
+        <div class="volume-control">
+          <label for="volume${idx}">Volume</label>
+          <input type="range" id="volume${idx}" min="0" max="1" step="0.01" value="1"/>
+        </div>
+      </div>
       <div class="controls">
         <button id="record${idx}">🎙️ Record</button>
         <button id="play${idx}">🔄 Play Loop</button>
         <button id="stop${idx}">⏹️ Stop</button>
         <button id="delRec${idx}">🗑️ Delete Recording</button>
         <button id="delTrack${idx}">❌ Delete Track</button>
-      </div>
-      <div class="volume-control">
-        <label for="volume${idx}">Volume</label>
-        <input type="range" id="volume${idx}" min="0" max="1" step="0.01" value="1" />
       </div>
     `;
     container.appendChild(trackDiv);
@@ -202,7 +235,7 @@
           startTimer(idx);
           document.getElementById(`record${idx}`).textContent = '⏹️ Stop Recording';
         } catch (e) {
-          alert('Mic permission chahiye!');
+          alert('Mic permission dena zaruri hai!');
           console.error(e);
         }
       }
@@ -210,11 +243,11 @@
 
     document.getElementById(`play${idx}`).onclick = async () => {
       if(!audioBlobs[idx]){
-        alert('Pehle record karo!');
+        alert('Pehle recording karein!');
         return;
       }
       if(isRecording[idx]){
-        // Recording chal rahi hai to pehle recording stop karo and wait for onstop event
+        // Stop recording and wait for stop before playing loop
         const rec = mediaRecorders[idx];
         const stream = mediaStreams[idx];
         if(rec && stream){
@@ -257,7 +290,6 @@
       }
     };
 
-    // Delete Recording
     document.getElementById(`delRec${idx}`).onclick = () => {
       if(isRecording[idx]){
         alert('Recording chal rahi hai, pehle stop karo!');
@@ -273,7 +305,6 @@
       alert(`Track ${idx+1} ka recording delete ho gaya.`);
     };
 
-    // Delete Track
     document.getElementById(`delTrack${idx}`).onclick = () => {
       if(isRecording[idx]){
         alert('Recording chal rahi hai, pehle stop karo!');

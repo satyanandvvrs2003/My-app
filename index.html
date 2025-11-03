@@ -2,8 +2,8 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>Looper with Timer</title>
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1" />
+<title>Looper with Delete & Low Latency</title>
 <style>
   body {
     background:#e0e5ec;
@@ -11,12 +11,14 @@
     margin:0;
     display:flex;
     justify-content:center;
-    align-items:center;
+    align-items:flex-start;
+    padding:20px;
     min-height:100vh;
   }
   .container {
-    width:400px;
-    padding:30px;
+    width: 100%;
+    max-width: 420px;
+    padding:20px;
     background:#e0e5ec;
     border-radius:25px;
     box-shadow:8px 8px 20px #babecc, -8px -8px 20px #fff;
@@ -28,17 +30,19 @@
     margin-bottom:20px;
     font-size:1.5em;
     color:#333;
+    text-align: center;
   }
   button {
-    margin:10px 0;
-    padding:12px 25px;
+    margin:0 5px;
+    padding:12px 15px;
     border:none;
     border-radius:20px;
     box-shadow:4px 4px 12px #babecc, -4px -4px 12px #fff;
-    font-size:1em;
+    font-size: 1em;
     cursor:pointer;
     background:#e0e5ec;
     transition:all 0.2s;
+    flex-shrink: 0;
   }
   button:active {
     box-shadow: inset 4px 4px 12px #babecc, inset -4px -4px 12px #fff;
@@ -52,30 +56,58 @@
   }
   .track {
     display:flex;
-    justify-content:space-between;
-    align-items:center;
+    flex-wrap: wrap;
+    justify-content: space-between;
+    align-items: center;
     background:#f1f2f6;
     border-radius:20px;
     padding:15px;
     box-shadow:4px 4px 12px #babecc, -4px -4px 12px #fff;
   }
+  .track > span {
+    flex-basis: 100%;
+    font-weight: 600;
+    margin-bottom: 8px;
+    color:#444;
+  }
+  .controls {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    width: 100%;
+    justify-content: center;
+  }
   .timer {
     font-family: monospace;
     font-size: 14px;
     color: #555;
-    margin-left: 10px;
-    min-width: 70px;
+    margin: 0 10px;
+    min-width: 60px;
     text-align: center;
+  }
+  @media (max-width: 480px) {
+    .container {
+      max-width: 100%;
+      padding: 15px;
+    }
+    .track {
+      justify-content: center;
+    }
+    button {
+      padding: 12px 10px;
+      font-size: 14px;
+      flex-grow: 1;
+    }
   }
 </style>
 </head>
 <body>
 <div class="container">
-  <h2>🎧 Multi-Track Looper with Timer</h2>
+  <h2>🎧 Multi-Track Looper with Delete & Timer</h2>
   <div id="tracks"></div>
   <button id="addTrack">+ Add New Track</button>
   <button id="exportAudio">💾 Export All Tracks</button>
-  <p><em>Recordings saved locally, reload par bhi milenge.</em></p>
+  <p><em>Recordings saved locally; reload ke baad bhi milenge.</em></p>
 </div>
 <script>
 (async () => {
@@ -84,6 +116,7 @@
   let mediaStreams = [];
   let audioBlobs = [];
   let loopAudios = [];
+  let audioURLs = [];
   let isRecording = [];
   let timers = [];
   let timerIntervals = [];
@@ -149,6 +182,13 @@
     timers[index].textContent = '00:00';
   }
 
+  function clearAudioURL(index) {
+    if(audioURLs[index]) {
+      URL.revokeObjectURL(audioURLs[index]);
+      audioURLs[index] = null;
+    }
+  }
+
   function createTrack(index = null, isRehydrate = false) {
     if (index === null) index = trackCount++;
     else if (index >= trackCount) trackCount = index + 1;
@@ -157,16 +197,21 @@
     const trackDiv = document.createElement('div');
     trackDiv.className = 'track';
     trackDiv.id = `track-${index}`;
+
     trackDiv.innerHTML = `
       <span>Track ${index + 1}</span>
-      <span class="timer" id="timer${index}">00:00</span>
-      <button id="record${index}">🎙️ Record</button>
-      <button id="play${index}">🔄 Play Loop</button>
-      <button id="stop${index}">⏹️ Stop</button>
+      <div class="timer" id="timer${index}">00:00</div>
+      <div class="controls">
+        <button id="record${index}">🎙️ Record</button>
+        <button id="play${index}">🔄 Play Loop</button>
+        <button id="stop${index}">⏹️ Stop</button>
+        <button id="delRec${index}">🗑️ Delete Recording</button>
+        <button id="delTrack${index}">❌ Delete Track</button>
+      </div>
     `;
     tracksDiv.appendChild(trackDiv);
-    isRecording[index] = false;
 
+    isRecording[index] = false;
     timers[index] = document.getElementById(`timer${index}`);
 
     document.getElementById(`record${index}`).onclick = async () => {
@@ -184,12 +229,19 @@
           const mediaRecorder = new MediaRecorder(stream);
           mediaRecorders[index] = mediaRecorder;
           let chunks = [];
+
           mediaRecorder.ondataavailable = e => chunks.push(e.data);
           mediaRecorder.onstop = async () => {
             audioBlobs[index] = new Blob(chunks, { type: 'audio/webm' });
             chunks = [];
+
+            // Clear old audio URL to reduce latency
+            clearAudioURL(index);
+            audioURLs[index] = URL.createObjectURL(audioBlobs[index]);
+
             await saveToLocalStorage();
           };
+
           mediaRecorder.start();
           startTimer(index);
           isRecording[index] = true;
@@ -202,13 +254,18 @@
     };
 
     document.getElementById(`play${index}`).onclick = () => {
-      if (!audioBlobs[index]) return alert('Pehle record karein!');
+      if (!audioURLs[index]) {
+        if (!audioBlobs[index]) {
+          alert('Pehle recording karein!');
+          return;
+        }
+        audioURLs[index] = URL.createObjectURL(audioBlobs[index]); // create if missing
+      }
       if (loopAudios[index] && !loopAudios[index].paused) {
         loopAudios[index].pause();
         document.getElementById(`play${index}`).textContent = '🔄 Play Loop';
       } else {
-        const url = URL.createObjectURL(audioBlobs[index]);
-        const audio = new Audio(url);
+        const audio = new Audio(audioURLs[index]);
         audio.loop = true;
         audio.play();
         loopAudios[index] = audio;
@@ -229,13 +286,51 @@
         document.getElementById(`play${index}`).textContent = '🔄 Play Loop';
       }
     };
+
+    // Delete Recording button - only recording data cleared
+    document.getElementById(`delRec${index}`).onclick = () => {
+      if (isRecording[index]) {
+        alert('Pehle recording band karein!');
+        return;
+      }
+      if(loopAudios[index] && !loopAudios[index].paused) {
+        loopAudios[index].pause();
+        document.getElementById(`play${index}`).textContent = '🔄 Play Loop';
+      }
+      audioBlobs[index] = null;
+      clearAudioURL(index);
+      saveToLocalStorage();
+      alert(`Track ${index + 1} ka recording delete ho gaya.`);
+    };
+
+    // Delete Track button - remove entire track UI + data
+    document.getElementById(`delTrack${index}`).onclick = () => {
+      if (isRecording[index]) {
+        alert('Pehle recording band karein!');
+        return;
+      }
+      if(loopAudios[index] && !loopAudios[index].paused) {
+        loopAudios[index].pause();
+      }
+      audioBlobs[index] = null;
+      clearAudioURL(index);
+      mediaRecorders[index] = null;
+      mediaStreams[index] = null;
+      if (timers[index]) stopTimer(index);
+
+      // Remove from UI
+      const trackDiv = document.getElementById(`track-${index}`);
+      if(trackDiv) trackDiv.remove();
+
+      saveToLocalStorage();
+    };
   }
 
   document.getElementById('addTrack').onclick = () => createTrack();
 
   document.getElementById('exportAudio').onclick = () => {
     if (!audioBlobs.length || audioBlobs.every(b => !b)) {
-      alert('Koi recording nahi hai!');
+      alert('Abhi koi recording nahi hai!');
       return;
     }
     audioBlobs.forEach((blob, i) => {

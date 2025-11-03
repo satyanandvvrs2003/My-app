@@ -1,0 +1,259 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Looper with Timer</title>
+<style>
+  body {
+    background:#e0e5ec;
+    font-family:sans-serif;
+    margin:0;
+    display:flex;
+    justify-content:center;
+    align-items:center;
+    min-height:100vh;
+  }
+  .container {
+    width:400px;
+    padding:30px;
+    background:#e0e5ec;
+    border-radius:25px;
+    box-shadow:8px 8px 20px #babecc, -8px -8px 20px #fff;
+    display:flex;
+    flex-direction:column;
+    align-items:center;
+  }
+  h2 {
+    margin-bottom:20px;
+    font-size:1.5em;
+    color:#333;
+  }
+  button {
+    margin:10px 0;
+    padding:12px 25px;
+    border:none;
+    border-radius:20px;
+    box-shadow:4px 4px 12px #babecc, -4px -4px 12px #fff;
+    font-size:1em;
+    cursor:pointer;
+    background:#e0e5ec;
+    transition:all 0.2s;
+  }
+  button:active {
+    box-shadow: inset 4px 4px 12px #babecc, inset -4px -4px 12px #fff;
+  }
+  #tracks {
+    width:100%;
+    margin-top:20px;
+    display:flex;
+    flex-direction:column;
+    gap:15px;
+  }
+  .track {
+    display:flex;
+    justify-content:space-between;
+    align-items:center;
+    background:#f1f2f6;
+    border-radius:20px;
+    padding:15px;
+    box-shadow:4px 4px 12px #babecc, -4px -4px 12px #fff;
+  }
+  .timer {
+    font-family: monospace;
+    font-size: 14px;
+    color: #555;
+    margin-left: 10px;
+    min-width: 70px;
+    text-align: center;
+  }
+</style>
+</head>
+<body>
+<div class="container">
+  <h2>🎧 Multi-Track Looper with Timer</h2>
+  <div id="tracks"></div>
+  <button id="addTrack">+ Add New Track</button>
+  <button id="exportAudio">💾 Export All Tracks</button>
+  <p><em>Recordings saved locally, reload par bhi milenge.</em></p>
+</div>
+<script>
+(async () => {
+  let trackCount = 0;
+  let mediaRecorders = [];
+  let mediaStreams = [];
+  let audioBlobs = [];
+  let loopAudios = [];
+  let isRecording = [];
+  let timers = [];
+  let timerIntervals = [];
+
+  const STORAGE_KEY = 'multiTrackLooperData';
+  let audioContext = new (window.AudioContext || window.webkitAudioContext)();
+
+  async function resumeAudioContext() {
+    if (audioContext.state === 'suspended') {
+      await audioContext.resume();
+    }
+  }
+
+  function blobToBase64(blob) {
+    return new Promise(resolve => {
+      if (!blob) resolve(null);
+      const reader = new FileReader();
+      reader.onloadend = () => resolve(reader.result);
+      reader.readAsDataURL(blob);
+    });
+  }
+
+  async function base64ToBlob(base64) {
+    if (!base64) return null;
+    const response = await fetch(base64);
+    return await response.blob();
+  }
+
+  async function saveToLocalStorage() {
+    const base64List = await Promise.all(audioBlobs.map(blobToBase64));
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(base64List));
+  }
+
+  async function loadFromLocalStorage() {
+    const storedData = localStorage.getItem(STORAGE_KEY);
+    if (!storedData) return;
+    const base64List = JSON.parse(storedData);
+    for (let i = 0; i < base64List.length; i++) {
+      if (base64List[i]) {
+        audioBlobs[i] = await base64ToBlob(base64List[i]);
+        createTrack(i, true);
+      }
+    }
+  }
+
+  function formatTime(seconds) {
+    const m = Math.floor(seconds / 60).toString().padStart(2, '0');
+    const s = (seconds % 60).toString().padStart(2, '0');
+    return `${m}:${s}`;
+  }
+
+  function startTimer(index) {
+    let seconds = 0;
+    timers[index].textContent = formatTime(seconds);
+    timerIntervals[index] = setInterval(() => {
+      seconds++;
+      timers[index].textContent = formatTime(seconds);
+    }, 1000);
+  }
+
+  function stopTimer(index) {
+    clearInterval(timerIntervals[index]);
+    timers[index].textContent = '00:00';
+  }
+
+  function createTrack(index = null, isRehydrate = false) {
+    if (index === null) index = trackCount++;
+    else if (index >= trackCount) trackCount = index + 1;
+
+    const tracksDiv = document.getElementById('tracks');
+    const trackDiv = document.createElement('div');
+    trackDiv.className = 'track';
+    trackDiv.id = `track-${index}`;
+    trackDiv.innerHTML = `
+      <span>Track ${index + 1}</span>
+      <span class="timer" id="timer${index}">00:00</span>
+      <button id="record${index}">🎙️ Record</button>
+      <button id="play${index}">🔄 Play Loop</button>
+      <button id="stop${index}">⏹️ Stop</button>
+    `;
+    tracksDiv.appendChild(trackDiv);
+    isRecording[index] = false;
+
+    timers[index] = document.getElementById(`timer${index}`);
+
+    document.getElementById(`record${index}`).onclick = async () => {
+      await resumeAudioContext();
+      if (isRecording[index]) {
+        mediaRecorders[index].stop();
+        mediaStreams[index].getTracks().forEach(t => t.stop());
+        stopTimer(index);
+        isRecording[index] = false;
+        document.getElementById(`record${index}`).textContent = '🎙️ Record';
+      } else {
+        try {
+          const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+          mediaStreams[index] = stream;
+          const mediaRecorder = new MediaRecorder(stream);
+          mediaRecorders[index] = mediaRecorder;
+          let chunks = [];
+          mediaRecorder.ondataavailable = e => chunks.push(e.data);
+          mediaRecorder.onstop = async () => {
+            audioBlobs[index] = new Blob(chunks, { type: 'audio/webm' });
+            chunks = [];
+            await saveToLocalStorage();
+          };
+          mediaRecorder.start();
+          startTimer(index);
+          isRecording[index] = true;
+          document.getElementById(`record${index}`).textContent = '⏹️ Stop Recording';
+        } catch (err) {
+          alert('Mic permission dena zaruri hai!');
+          console.error(err);
+        }
+      }
+    };
+
+    document.getElementById(`play${index}`).onclick = () => {
+      if (!audioBlobs[index]) return alert('Pehle record karein!');
+      if (loopAudios[index] && !loopAudios[index].paused) {
+        loopAudios[index].pause();
+        document.getElementById(`play${index}`).textContent = '🔄 Play Loop';
+      } else {
+        const url = URL.createObjectURL(audioBlobs[index]);
+        const audio = new Audio(url);
+        audio.loop = true;
+        audio.play();
+        loopAudios[index] = audio;
+        document.getElementById(`play${index}`).textContent = '⏹️ Pause Loop';
+      }
+    };
+
+    document.getElementById(`stop${index}`).onclick = () => {
+      if (isRecording[index]) {
+        mediaRecorders[index].stop();
+        mediaStreams[index].getTracks().forEach(t => t.stop());
+        stopTimer(index);
+        isRecording[index] = false;
+        document.getElementById(`record${index}`).textContent = '🎙️ Record';
+      }
+      if (loopAudios[index] && !loopAudios[index].paused) {
+        loopAudios[index].pause();
+        document.getElementById(`play${index}`).textContent = '🔄 Play Loop';
+      }
+    };
+  }
+
+  document.getElementById('addTrack').onclick = () => createTrack();
+
+  document.getElementById('exportAudio').onclick = () => {
+    if (!audioBlobs.length || audioBlobs.every(b => !b)) {
+      alert('Koi recording nahi hai!');
+      return;
+    }
+    audioBlobs.forEach((blob, i) => {
+      if(blob) {
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `Track_${i + 1}.webm`;
+        a.click();
+      }
+    });
+  };
+
+  await loadFromLocalStorage();
+  if (!document.getElementById('tracks').children.length) {
+    createTrack();
+  }
+})();
+</script>
+</body>
+</html>
